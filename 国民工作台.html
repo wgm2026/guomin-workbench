@@ -601,55 +601,67 @@ window.App = window.App || {};
   App.ui = ui;
 })(window.App);
 
-/* ===== 国民工作台 · 云端同步层（JSONBin 免费版） =====
+/* ===== 国民工作台 · 云端同步层（GitHub 仓库版） =====
  * 设计：本地优先（localStorage 即时响应）+ 写后异步上云 + 打开时拉取云端
  * 单人两设备同步：A 设备写入 → 上云；B 设备打开/刷新 → 拉取覆盖本地
- * 配置：在「全局辅助中心 → 云端留存」填入 JSONBin Bin ID + Access Key 即可启用
+ * 配置：在「全局辅助中心 → 云端留存」填入 GitHub Token + 用户名 + 仓库名即可启用
+ * 原理：用 GitHub 仓库里的 cloud-data.json 当云端数据库，一个 Token 全搞定
  */
 window.App = window.App || {};
 (function (App) {
   const SYNC = {};
   const LKEY = 'guomin_workbench_v1';          // 本地数据
-  const CKEY = 'guomin_sync_config_v1';         // 云端配置（binId / masterKey / accessCode）
+  const CKEY = 'guomin_sync_config_v1';         // 云端配置
+  const FILE = 'cloud-data.json';               // 云端数据文件名
 
   SYNC.getConfig = function () {
     try { return JSON.parse(localStorage.getItem(CKEY)) || {}; } catch (e) { return {}; }
   };
   SYNC.setConfig = function (cfg) { localStorage.setItem(CKEY, JSON.stringify(cfg)); };
-  SYNC.enabled = function () { const c = SYNC.getConfig(); return !!(c.binId && c.masterKey); };
+  SYNC.enabled = function () { const c = SYNC.getConfig(); return !!(c.token && c.owner && c.repo); };
 
-  const BIN_URL = function (binId) { return 'https://api.jsonbin.io/v3/b/' + binId; };
-  const HEADERS = function (cfg) {
-    return { 'Content-Type': 'application/json', 'X-Master-Key': cfg.masterKey, 'X-Bin-Meta': 'false' };
-  };
+  function apiBase(cfg) { return 'https://api.github.com/repos/' + cfg.owner + '/' + cfg.repo + '/contents/' + FILE; }
+  function headers(cfg) { return { 'Authorization': 'token ' + cfg.token, 'Accept': 'application/vnd.github.v3+json', 'Content-Type': 'application/json' }; }
 
   // 拉取云端数据
   SYNC.pull = function () {
     const cfg = SYNC.getConfig(); if (!SYNC.enabled()) return Promise.resolve({ ok: false, reason: 'no-config' });
-    return fetch(BIN_URL(cfg.binId) + '/latest', { method: 'GET', headers: HEADERS(cfg) })
-      .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-      .then(j => { const data = j.record != null ? j.record : j; return { ok: true, data }; })
+    return fetch(apiBase(cfg) + '?ref=main', { method: 'GET', headers: headers(cfg) })
+      .then(r => {
+        if (r.status === 404) return { ok: true, data: null, sha: null };  // 云端还没数据
+        if (!r.ok) return Promise.reject(new Error('HTTP ' + r.status));
+        return r.json();
+      })
+      .then(j => {
+        if (!j) return { ok: true, data: null, sha: null };
+        const sha = j.sha || null;
+        if (!j.content) return { ok: true, data: null, sha };
+        const raw = j.content.replace(/\n/g, '');
+        try { const data = JSON.parse(atob(raw)); return { ok: true, data, sha }; }
+        catch (e) { return { ok: false, reason: 'parse error' }; }
+      })
       .catch(e => ({ ok: false, reason: e.message }));
   };
 
   // 推送本地数据到云端
-  SYNC.push = function (data) {
+  SYNC.push = function (data, sha) {
     const cfg = SYNC.getConfig(); if (!SYNC.enabled()) return Promise.resolve({ ok: false, reason: 'no-config' });
-    return fetch(BIN_URL(cfg.binId), { method: 'PUT', headers: HEADERS(cfg), body: JSON.stringify(data) })
+    const content = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    const body = { message: 'sync ' + new Date().toISOString(), content };
+    if (sha) body.sha = sha;
+    return fetch(apiBase(cfg), { method: 'PUT', headers: headers(cfg), body: JSON.stringify(body) })
       .then(r => r.ok ? r.json() : Promise.reject(new Error('HTTP ' + r.status)))
-      .then(() => ({ ok: true }))
+      .then(j => ({ ok: true, sha: j.content ? j.content.sha : sha }))
       .catch(e => ({ ok: false, reason: e.message }));
   };
 
-  // 合并云端数据到本地（云端优先覆盖本地，但保留本地较新时间戳的记录）
+  // 合并云端数据到本地
   SYNC.mergeTo = function (cloud) {
     if (!cloud || typeof cloud !== 'object') return false;
     const local = App.store.exportAll();
-    // 简化策略：以 _meta.syncedAt 比较，云端较新则整体覆盖本地
     const localT = (local._meta && local._meta.syncedAt) || 0;
     const cloudT = (cloud._meta && cloud._meta.syncedAt) || 0;
     if (cloudT > localT) {
-      // 云端覆盖本地（保留本地配置）
       const savedCfg = SYNC.getConfig();
       localStorage.setItem(LKEY, JSON.stringify(cloud));
       SYNC.setConfig(savedCfg);
@@ -658,21 +670,22 @@ window.App = window.App || {};
     return false;
   };
 
-  // 一次完整同步：先拉取，若云端较新则覆盖本地；再把本地推上云（保证本地最新写法上云）
+  // 完整同步
+  let lastSha = null;
   SYNC.sync = function () {
     if (!SYNC.enabled()) return Promise.resolve({ ok: false, reason: 'no-config' });
     return SYNC.pull().then(res => {
       if (res.ok && res.data) { const changed = SYNC.mergeTo(res.data); if (changed) App.store.load(true); }
-      // 标记同步时间并推送
+      if (res.sha) lastSha = res.sha;
       const data = App.store.exportAll();
       data._meta = data._meta || {};
       data._meta.syncedAt = Date.now();
       localStorage.setItem(LKEY, JSON.stringify(data));
-      return SYNC.push(data);
-    });
+      return SYNC.push(data, lastSha);
+    }).then(r => { if (r.ok && r.sha) lastSha = r.sha; return r; });
   };
 
-  // 自动同步：每次本地写入后调用（节流 3 秒）
+  // 自动同步（节流 3 秒）
   let timer = null;
   SYNC.notifyWrite = function () {
     if (!SYNC.enabled()) return;
@@ -2155,16 +2168,15 @@ window.App = window.App || {};
         const enabled = App.sync.enabled();
         tab.innerHTML = `<div class="card">
           <h3>☁ 两台设备数据同步 <span class="tag ${enabled ? 'ok' : 'gray'}">${enabled ? '已启用' : '未启用'}</span></h3>
-          <div class="tip mb">免费方案（JSONBin）：两台设备填同一组配置即可同步。A 设备录入后自动上云，B 设备打开/刷新自动拉取。数据仅你可见。</div>
+          <div class="tip mb">用 GitHub 仓库当云端数据库，两台设备填同一组配置即可同步。A 设备录入后自动上云，B 设备打开/刷新自动拉取。数据仅你可见。</div>
           <form id="syncForm">
             <div class="form-2">
-              <div class="field"><label>访问码（自定义，两台设备填同一个）</label><input class="input" data-field="accessCode" type="text" value="${ui.esc(cfg.accessCode || '')}" placeholder="如：wgm2026"/></div>
-              <div class="field"><label>JSONBin Bin ID</label><input class="input" data-field="binId" type="text" value="${ui.esc(cfg.binId || '')}" placeholder="在 jsonbin.io 创建后获得"/></div>
+              <div class="field"><label>GitHub 用户名</label><input class="input" data-field="owner" type="text" value="${ui.esc(cfg.owner || '')}" placeholder="如：wgm2026"/></div>
+              <div class="field"><label>仓库名</label><input class="input" data-field="repo" type="text" value="${ui.esc(cfg.repo || 'guomin-workbench')}" placeholder="guomin-workbench"/></div>
             </div>
-            <div class="field"><label>Master Key（访问密钥）</label><input class="input" data-field="masterKey" type="password" value="${ui.esc(cfg.masterKey || '')}" placeholder="JSONBin 个人 API Key"/></div>
+            <div class="field"><label>GitHub Token（访问密钥）</label><input class="input" data-field="token" type="password" value="${ui.esc(cfg.token || '')}" placeholder="ghp_... 开头的一串"/></div>
             <div class="row mt"><button type="submit" class="btn">保存同步配置</button>
               <button type="button" class="btn sec" id="syncNow">立即同步</button>
-              <button type="button" class="btn ghost" id="syncHelp">📋 怎么获取配置？</button>
             </div>
           </form>
           <div id="syncResult" class="mt"></div>
@@ -2186,8 +2198,8 @@ window.App = window.App || {};
         </div>`;
         ui.q('#syncForm', tab).onsubmit = (e) => {
           e.preventDefault(); const d = ui.parseForm(ui.q('#syncForm', tab));
-          if (!d.binId || !d.masterKey) return ui.toast('请填写 Bin ID 和 Master Key', 'err');
-          App.sync.setConfig(d); ui.toast('同步配置已保存', 'ok'); paint();
+          if (!d.owner || !d.repo || !d.token) return ui.toast('请填写完整', 'err');
+          App.sync.setConfig(d); ui.toast('同步配置已保存', 'ok'); if (App.app.updateSyncInd) App.app.updateSyncInd(); paint();
         };
         ui.q('#syncNow', tab).onclick = async () => {
           ui.q('#syncResult', tab).innerHTML = '<div class="tip">同步中…</div>';
@@ -2195,39 +2207,8 @@ window.App = window.App || {};
           ui.q('#syncResult', tab).innerHTML = r.ok ? '<div class="callout">✅ 同步成功：本地与云端已一致</div>' : '<div class="callout urgent">❌ 同步失败：' + ui.esc(r.reason) + '</div>';
           if (r.ok) { App.app.go('home'); }
         };
-        ui.q('#syncHelp', tab).onclick = () => showSyncHelp();
         ui.q('#exp', tab).onclick = () => App.app.exportData();
         ui.q('#imp', tab).onclick = () => App.app.importData();
-      }
-      function showSyncHelp() {
-        const body = ui.el(`<div class="report">
-          <h2>免费获取同步配置（3 分钟）</h2>
-          <h4>一、注册 JSONBin</h4>
-          <ol>
-            <li>打开 <b>https://jsonbin.io</b> → 右上角「Sign Up」→ 免费注册（邮箱即可，无需信用卡）。</li>
-            <li>登录后进入 Dashboard。</li>
-          </ol>
-          <h4>二、创建一个 Bin（数据容器）</h4>
-          <ol>
-            <li>左侧菜单「Bins」→「New Bin」。</li>
-            <li>随便输入个 <code>{}</code> →「Create」。</li>
-            <li>创建后会得到一串 <b>Bin ID</b>（形如 <code>3a1b2c...</code>），复制备用。</li>
-          </ol>
-          <h4>三、获取 Master Key</h4>
-          <ol>
-            <li>右上角头像 →「API Keys」。</li>
-            <li>复制你的 <b>X-Master-Key</b>（形如 <code>$2a$10$...</code>）。</li>
-          </ol>
-          <h4>四、填入工作台</h4>
-          <ol>
-            <li>回到「云端留存」→ 把 Bin ID 和 Master Key 填入上方表单 → 保存。</li>
-            <li>在另一台设备打开工作台，填<b>同一组</b>配置 → 点「立即同步」。</li>
-            <li>之后两台设备任意一台录入，3 秒内自动上云；另一台打开时自动拉取。</li>
-          </ol>
-          <div class="callout warn">⚠ 数据安全：Bin ID + Master Key 相当于数据钥匙，不要泄露给他人。配置只存在你两台设备本地。</div>
-          <div class="callout">💡 免费额度：JSONBin 免费版每月 10000 次请求，你每天用几十次足够；数据上限 10MB（你的全量数据通常 &lt;1MB）。</div>
-        </div>`);
-        ui.modal({ title: '如何免费开启两台设备同步', body });
       }
       paint();
     }
