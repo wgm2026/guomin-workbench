@@ -1,0 +1,15 @@
+{
+  "name": "国民工作台 · 王国民律师专属AI工作台",
+  "short_name": "国民工作台",
+  "description": "案件智能台账 / 直播数据分析 / 抖音运营 / 健康减脂 一体化",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f4f6fa",
+  "theme_color": "#1f4e79",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
