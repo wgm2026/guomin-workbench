@@ -229,16 +229,15 @@ window.App = window.App || {};
         const enabled = App.sync.enabled();
         tab.innerHTML = `<div class="card">
           <h3>☁ 两台设备数据同步 <span class="tag ${enabled ? 'ok' : 'gray'}">${enabled ? '已启用' : '未启用'}</span></h3>
-          <div class="tip mb">免费方案（JSONBin）：两台设备填同一组配置即可同步。A 设备录入后自动上云，B 设备打开/刷新自动拉取。数据仅你可见。</div>
+          <div class="tip mb">用 GitHub 仓库当云端数据库，两台设备填同一组配置即可同步。A 设备录入后自动上云，B 设备打开/刷新自动拉取。数据仅你可见。</div>
           <form id="syncForm">
             <div class="form-2">
-              <div class="field"><label>访问码（自定义，两台设备填同一个）</label><input class="input" data-field="accessCode" type="text" value="${ui.esc(cfg.accessCode || '')}" placeholder="如：wgm2026"/></div>
-              <div class="field"><label>JSONBin Bin ID</label><input class="input" data-field="binId" type="text" value="${ui.esc(cfg.binId || '')}" placeholder="在 jsonbin.io 创建后获得"/></div>
+              <div class="field"><label>GitHub 用户名</label><input class="input" data-field="owner" type="text" value="${ui.esc(cfg.owner || '')}" placeholder="如：wgm2026"/></div>
+              <div class="field"><label>仓库名</label><input class="input" data-field="repo" type="text" value="${ui.esc(cfg.repo || 'guomin-workbench')}" placeholder="guomin-workbench"/></div>
             </div>
-            <div class="field"><label>Master Key（访问密钥）</label><input class="input" data-field="masterKey" type="password" value="${ui.esc(cfg.masterKey || '')}" placeholder="JSONBin 个人 API Key"/></div>
+            <div class="field"><label>GitHub Token（访问密钥）</label><input class="input" data-field="token" type="password" value="${ui.esc(cfg.token || '')}" placeholder="ghp_... 开头的一串"/></div>
             <div class="row mt"><button type="submit" class="btn">保存同步配置</button>
               <button type="button" class="btn sec" id="syncNow">立即同步</button>
-              <button type="button" class="btn ghost" id="syncHelp">📋 怎么获取配置？</button>
             </div>
           </form>
           <div id="syncResult" class="mt"></div>
@@ -260,8 +259,8 @@ window.App = window.App || {};
         </div>`;
         ui.q('#syncForm', tab).onsubmit = (e) => {
           e.preventDefault(); const d = ui.parseForm(ui.q('#syncForm', tab));
-          if (!d.binId || !d.masterKey) return ui.toast('请填写 Bin ID 和 Master Key', 'err');
-          App.sync.setConfig(d); ui.toast('同步配置已保存', 'ok'); paint();
+          if (!d.owner || !d.repo || !d.token) return ui.toast('请填写完整', 'err');
+          App.sync.setConfig(d); ui.toast('同步配置已保存', 'ok'); if (App.app.updateSyncInd) App.app.updateSyncInd(); paint();
         };
         ui.q('#syncNow', tab).onclick = async () => {
           ui.q('#syncResult', tab).innerHTML = '<div class="tip">同步中…</div>';
@@ -269,39 +268,8 @@ window.App = window.App || {};
           ui.q('#syncResult', tab).innerHTML = r.ok ? '<div class="callout">✅ 同步成功：本地与云端已一致</div>' : '<div class="callout urgent">❌ 同步失败：' + ui.esc(r.reason) + '</div>';
           if (r.ok) { App.app.go('home'); }
         };
-        ui.q('#syncHelp', tab).onclick = () => showSyncHelp();
         ui.q('#exp', tab).onclick = () => App.app.exportData();
         ui.q('#imp', tab).onclick = () => App.app.importData();
-      }
-      function showSyncHelp() {
-        const body = ui.el(`<div class="report">
-          <h2>免费获取同步配置（3 分钟）</h2>
-          <h4>一、注册 JSONBin</h4>
-          <ol>
-            <li>打开 <b>https://jsonbin.io</b> → 右上角「Sign Up」→ 免费注册（邮箱即可，无需信用卡）。</li>
-            <li>登录后进入 Dashboard。</li>
-          </ol>
-          <h4>二、创建一个 Bin（数据容器）</h4>
-          <ol>
-            <li>左侧菜单「Bins」→「New Bin」。</li>
-            <li>随便输入个 <code>{}</code> →「Create」。</li>
-            <li>创建后会得到一串 <b>Bin ID</b>（形如 <code>3a1b2c...</code>），复制备用。</li>
-          </ol>
-          <h4>三、获取 Master Key</h4>
-          <ol>
-            <li>右上角头像 →「API Keys」。</li>
-            <li>复制你的 <b>X-Master-Key</b>（形如 <code>$2a$10$...</code>）。</li>
-          </ol>
-          <h4>四、填入工作台</h4>
-          <ol>
-            <li>回到「云端留存」→ 把 Bin ID 和 Master Key 填入上方表单 → 保存。</li>
-            <li>在另一台设备打开工作台，填<b>同一组</b>配置 → 点「立即同步」。</li>
-            <li>之后两台设备任意一台录入，3 秒内自动上云；另一台打开时自动拉取。</li>
-          </ol>
-          <div class="callout warn">⚠ 数据安全：Bin ID + Master Key 相当于数据钥匙，不要泄露给他人。配置只存在你两台设备本地。</div>
-          <div class="callout">💡 免费额度：JSONBin 免费版每月 10000 次请求，你每天用几十次足够；数据上限 10MB（你的全量数据通常 &lt;1MB）。</div>
-        </div>`);
-        ui.modal({ title: '如何免费开启两台设备同步', body });
       }
       paint();
     }
