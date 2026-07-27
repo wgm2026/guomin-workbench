@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#1f4e79" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="国民工作台" />
+  <title>国民工作台 · 王国民律师专属AI工作台</title>
+  <link rel="stylesheet" href="css/style.css?v=28" />
+</head>
+<body>
+  <div id="app">
+    <!-- 侧边导航 -->
+    <aside class="sidebar" id="sidebar">
+      <div class="brand">
+        <div class="brand-logo">国</div>
+        <div class="brand-text">
+          <div class="brand-name">国民工作台</div>
+          <div class="brand-sub" id="brandAccount">王国民律师</div>
+        </div>
+      </div>
+      <nav class="nav" id="nav">
+        <button class="nav-item active" data-module="home">🏠 工作台首页</button>
+        <button class="nav-item" data-module="cases">⚖️ 案件智能台账</button>
+        <button class="nav-item" data-module="live">📺 直播数据分析</button>
+        <button class="nav-item" data-module="douyin">📱 抖音运营分析</button>
+        <button class="nav-item" data-module="health">🏃 健康减脂中心</button>
+        <button class="nav-item" data-module="global">🧭 全局辅助中心</button>
+      </nav>
+      <div class="sidebar-foot">
+        <button class="ghost-btn" id="btnExport">⬇ 导出备份</button>
+        <button class="ghost-btn" id="btnImport">⬆ 导入恢复</button>
+        <input type="file" id="importFile" accept="application/json" hidden />
+        <div class="ver">v1.0 · 数据本地长期存档</div>
+      </div>
+    </aside>
+
+    <!-- 主区域 -->
+    <div class="main">
+      <header class="topbar">
+        <button class="icon-btn" id="toggleSidebar" title="收起/展开导航">☰</button>
+        <div class="topbar-title" id="topbarTitle">工作台首页</div>
+        <div class="topbar-right">
+          <button class="sync-indicator" id="syncInd" title="云端同步状态">☁ 本地</button>
+          <button class="quick-memo" id="btnQuickMemo" title="一句话快速记录">✍ 快捷记录</button>
+          <div class="clock" id="clock">--:--</div>
+        </div>
+      </header>
+      <main class="content" id="content"><!-- 模块内容由 JS 渲染 --></main>
+    </div>
+  </div>
+
+  <!-- 弹窗根 -->
+  <div class="modal-mask" id="modalMask" hidden>
+    <div class="modal" id="modal">
+      <div class="modal-head"><span id="modalTitle">标题</span><button class="modal-close" id="modalClose">✕</button></div>
+      <div class="modal-body" id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- 提示根 -->
+  <div class="toast-wrap" id="toastWrap"></div>
+
+  <!-- 脚本（经典脚本，可直接双击打开 /workspace/index.html 使用） -->
+  <script src="js/store.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/sync.js"></script>
+  <script src="js/reminders.js"></script>
+  <script src="js/modules/cases.js"></script>
+  <script src="js/modules/live.js"></script>
+  <script src="js/modules/douyin.js"></script>
+  <script src="js/modules/health.js"></script>
+  <script src="js/modules/global.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker.register('sw.js').catch(function (e) { console.warn('SW reg failed:', e); });
+      });
+    }
+  </script>
+</body>
+</html>
